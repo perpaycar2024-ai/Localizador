@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Mi Coche" />
+  <title>¿Dónde aparqué?</title>
+  <link rel="manifest" href="manifest.json" />
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1e2530;
+      --border:    rgba(255,255,255,0.07);
+      --accent:    #f0a500;
+      --accent2:   #e05c1a;
+      --text:      #e6edf3;
+      --muted:     #7d8590;
+      --danger:    #da3633;
+      --green:     #3fb950;
+      --radius:    16px;
+      --shadow:    0 8px 32px rgba(0,0,0,0.6);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: 'Barlow', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    /* ── FONDO ASFALTO ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.08'/%3E%3C/svg%3E");
+      opacity: 1;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── LAYOUT ── */
+    #app {
+      position: relative;
+      z-index: 1;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    /* ── HEADER ── */
+    header {
+      padding: 18px 20px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .logo h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 26px;
+      letter-spacing: 2px;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .logo span {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    /* ── STATUS PILL ── */
+    #status-pill {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 5px 12px;
+      border-radius: 100px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      transition: all 0.3s;
+    }
+    #status-pill.saved  { color: var(--green);  border-color: var(--green);  background: rgba(63,185,80,0.1); }
+    #status-pill.locating { color: var(--accent); border-color: var(--accent); background: rgba(240,165,0,0.1); animation: pulse 1.2s infinite; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+    /* ── MAPA ── */
+    #map-wrap {
+      flex-shrink: 0;
+      position: relative;
+      height: 46dvh;
+      margin: 0 16px;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #1a1f2e;
+    }
+
+    /* overlay vacío */
+    #map-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(4px);
+      gap: 12px;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    #map-empty .big-icon { font-size: 52px; opacity: 0.4; }
+    #map-empty p { color: var(--muted); font-size: 13px; text-align: center; line-height: 1.5; }
+    #map-empty.hidden { opacity: 0; }
+
+    /* distancia badge sobre el mapa */
+    #dist-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 500;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--accent);
+      border-radius: 12px;
+      padding: 6px 14px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+    }
+    #dist-badge.visible { display: flex; }
+    #dist-badge .dist-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px;
+      color: var(--accent);
+      line-height: 1;
+    }
+    #dist-badge .dist-unit {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    /* ── PANEL INFERIOR ── */
+    #panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    /* ── FOTO ── */
+    #foto-wrap { display: none; }
+    #foto-wrap.visible { display: block; }
+
+    #foto-preview {
+      width: 100%;
+      max-height: 160px;
+      object-fit: cover;
+      border-radius: 10px;
+      display: none;
+      margin-bottom: 10px;
+    }
+    #foto-preview.visible { display: block; }
+
+    .foto-btn-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    label.btn-icon, button.btn-icon {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px dashed var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      font-family: 'Barlow', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    label.btn-icon:hover, button.btn-icon:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    #foto-input { display: none; }
+
+    /* ── NOTA ── */
+    #nota-wrap { display: none; }
+    #nota-wrap.visible { display: block; }
+
+    textarea#nota {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: 'Barlow', sans-serif;
+      font-size: 14px;
+      padding: 10px 12px;
+      resize: none;
+      min-height: 70px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    textarea#nota:focus { border-color: var(--accent); }
+    textarea#nota::placeholder { color: var(--muted); }
+
+    /* ── INFO GUARDADO ── */
+    #info-saved {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #info-saved.visible { display: flex; }
+
+    .info-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .info-row .icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .info-row strong { color: var(--text); font-weight: 600; }
+
+    /* ── BOTONES ACCIÓN ── */
+    #btn-aparcar {
+      width: 100%;
+      padding: 18px;
+      border-radius: var(--radius);
+      border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #000;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      letter-spacing: 3px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(240,165,0,0.35);
+      transition: transform 0.15s, box-shadow 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+    #btn-aparcar:active { transform: scale(0.97); }
+    #btn-aparcar::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+    }
+    #btn-aparcar:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-secondary {
+      flex: 1;
+      padding: 13px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-family: 'Barlow', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+    #btn-navegar {
+      border-color: var(--green);
+      color: var(--green);
+    }
+    #btn-navegar:hover { background: rgba(63,185,80,0.1); }
+
+    #btn-borrar {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+    #btn-borrar:hover { background: rgba(218,54,51,0.1); }
+
+    /* ── EXPANSORES ── */
+    .expander-btn {
+      width: 100%;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-family: 'Barlow', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      padding: 0;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .expander-btn .arrow { transition: transform 0.2s; font-size: 10px; }
+    .expander-btn.open .arrow { transform: rotate(90deg); }
+
+    /* ── TOAST ── */
+    #toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 10px 22px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 9999;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Leaflet dark overrides */
+    .leaflet-tile { filter: brightness(0.7) saturate(0.6); }
+    .leaflet-control-attribution { display: none !important; }
+    .leaflet-control-zoom a {
+      background: var(--surface2) !important;
+      color: var(--text) !important;
+      border-color: var(--border) !important;
+    }
+
+    /* scrollbar */
+    #panel::-webkit-scrollbar { width: 4px; }
+    #panel::-webkit-scrollbar-track { background: transparent; }
+    #panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="logo">
+      <h1>🚗 Mi Coche</h1>
+      <span>Localizador</span>
+    </div>
+    <div id="status-pill">Sin guardar</div>
+  </header>
+
+  <!-- MAPA -->
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="map-empty">
+      <div class="big-icon">🅿️</div>
+      <p>Pulsa el botón para guardar<br>la posición de tu coche</p>
+    </div>
+    <div id="dist-badge">
+      <span class="dist-num" id="dist-num">—</span>
+      <span class="dist-unit" id="dist-unit">metros</span>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div id="panel">
+
+    <!-- Botón principal -->
+    <button id="btn-aparcar">📍 Aparqué aquí</button>
+
+    <!-- Foto (expansor) -->
+    <div class="card" id="foto-card">
+      <button class="expander-btn" id="toggle-foto">
+        <span class="arrow">▶</span> 📷 Añadir foto
+      </button>
+      <div id="foto-wrap">
+        <img id="foto-preview" alt="Foto aparcamiento" />
+        <div class="foto-btn-row">
+          <label class="btn-icon" for="foto-input">
+            📂 Galería
+          </label>
+          <label class="btn-icon" for="foto-camara">
+            📷 Cámara
+          </label>
+        </div>
+        <input type="file" id="foto-input" accept="image/*" />
+        <input type="file" id="foto-camara" accept="image/*" capture="environment" />
+      </div>
+    </div>
+
+    <!-- Nota (expansor) -->
+    <div class="card" id="nota-card">
+      <button class="expander-btn" id="toggle-nota">
+        <span class="arrow">▶</span> 📝 Añadir nota
+      </button>
+      <div id="nota-wrap">
+        <textarea id="nota" placeholder="Ej: junto al semáforo, 2ª planta parking…" maxlength="200"></textarea>
+      </div>
+    </div>
+
+    <!-- Info guardada -->
+    <div class="card" id="info-saved">
+      <div class="info-row">
+        <span class="icon">📅</span>
+        <div><strong id="info-fecha">—</strong></div>
+      </div>
+      <div class="info-row" id="info-nota-row" style="display:none">
+        <span class="icon">📝</span>
+        <div id="info-nota-text">—</div>
+      </div>
+      <div class="info-row">
+        <span class="icon">📍</span>
+        <div id="info-coords" style="font-size:11px; color: var(--muted)">—</div>
+      </div>
+    </div>
+
+    <!-- Botones secundarios -->
+    <div class="btn-row" id="btns-secundarios" style="display:none">
+      <button class="btn-secondary" id="btn-navegar">🧭 Navegar</button>
+      <button class="btn-secondary" id="btn-borrar">🗑 Borrar</button>
+    </div>
+
+  </div><!-- /panel -->
+</div><!-- /app -->
+
+<div id="toast"></div>
+
+<!-- Leaflet JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script>
+// ─── ESTADO ───────────────────────────────────────────────
+let aparcamiento = null;   // { lat, lng, fecha, nota, foto(base64) }
+let map = null;
+let markerCoche = null;
+let markerYo = null;
+let watchId = null;
+let posActual = null;
+
+// ─── INIT ─────────────────────────────────────────────────
+function init() {
+  initMap();
+  cargarDesdeStorage();
+  bindEvents();
+  iniciarGPS();
+}
+
+// ─── MAPA ─────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', {
+    zoomControl: true,
+    attributionControl: false,
+  }).setView([40.416775, -3.703790], 15);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+  }).addTo(map);
+}
+
+const iconoCoche = L.divIcon({
+  html: `<div style="
+    font-size: 32px;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8));
+    animation: bounce 2s ease-in-out infinite;
+  ">🚗</div>`,
+  className: '',
+  iconSize: [40, 40],
+  iconAnchor: [20, 36],
+});
+
+const iconoYo = L.divIcon({
+  html: `<div style="
+    width:16px; height:16px;
+    background: #4dabf7;
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 0 4px rgba(77,171,247,0.3);
+  "></div>`,
+  className: '',
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
+
+// ─── GPS ──────────────────────────────────────────────────
+function iniciarGPS() {
+  if (!navigator.geolocation) return;
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      posActual = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      actualizarPosicionUsuario(posActual);
+      if (aparcamiento) actualizarDistancia();
+    },
+    err => console.warn('GPS error:', err),
+    { enableHighAccuracy: true, maximumAge: 5000 }
+  );
+}
+
+function actualizarPosicionUsuario({ lat, lng }) {
+  if (markerYo) {
+    markerYo.setLatLng([lat, lng]);
+  } else {
+    markerYo = L.marker([lat, lng], { icon: iconoYo, zIndexOffset: 100 }).addTo(map);
+  }
+}
+
+// ─── GUARDAR APARCAMIENTO ─────────────────────────────────
+function guardarAparcamiento() {
+  const pill = document.getElementById('status-pill');
+  pill.className = 'locating';
+  pill.textContent = 'Localizando…';
+  document.getElementById('btn-aparcar').disabled = true;
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const nota = document.getElementById('nota').value.trim();
+      const foto = document.getElementById('foto-preview').src || null;
+
+      aparcamiento = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        fecha: new Date().toLocaleString('es-ES', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        }),
+        nota: nota || null,
+        foto: (document.getElementById('foto-preview').classList.contains('visible')) ? document.getElementById('foto-preview').src : null,
+      };
+
+      guardarEnStorage();
+      mostrarAparcamiento();
+      toast('✅ Posición guardada');
+    },
+    err => {
+      toast('❌ No se pudo obtener la ubicación');
+      pill.className = '';
+      pill.textContent = 'Sin guardar';
+      document.getElementById('btn-aparcar').disabled = false;
+    },
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
+}
+
+// ─── MOSTRAR APARCAMIENTO ─────────────────────────────────
+function mostrarAparcamiento() {
+  if (!aparcamiento) return;
+
+  // Mapa
+  document.getElementById('map-empty').classList.add('hidden');
+
+  if (markerCoche) {
+    markerCoche.setLatLng([aparcamiento.lat, aparcamiento.lng]);
+  } else {
+    markerCoche = L.marker([aparcamiento.lat, aparcamiento.lng], { icon: iconoCoche }).addTo(map);
+  }
+  map.setView([aparcamiento.lat, aparcamiento.lng], 17);
+
+  // Distancia
+  document.getElementById('dist-badge').classList.add('visible');
+  if (posActual) actualizarDistancia();
+
+  // Pill
+  const pill = document.getElementById('status-pill');
+  pill.className = 'saved';
+  pill.textContent = 'Guardado';
+
+  // Info
+  document.getElementById('info-fecha').textContent = aparcamiento.fecha;
+  document.getElementById('info-coords').textContent =
+    `${aparcamiento.lat.toFixed(6)}, ${aparcamiento.lng.toFixed(6)}`;
+
+  const notaRow = document.getElementById('info-nota-row');
+  if (aparcamiento.nota) {
+    document.getElementById('info-nota-text').textContent = aparcamiento.nota;
+    notaRow.style.display = 'flex';
+  } else {
+    notaRow.style.display = 'none';
+  }
+
+  document.getElementById('info-saved').classList.add('visible');
+  document.getElementById('btns-secundarios').style.display = 'flex';
+
+  // Botón principal → actualizar
+  document.getElementById('btn-aparcar').disabled = false;
+  document.getElementById('btn-aparcar').textContent = '🔄 Actualizar posición';
+}
+
+// ─── DISTANCIA ────────────────────────────────────────────
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function actualizarDistancia() {
+  if (!posActual || !aparcamiento) return;
+  const d = haversine(posActual.lat, posActual.lng, aparcamiento.lat, aparcamiento.lng);
+  const numEl = document.getElementById('dist-num');
+  const unitEl = document.getElementById('dist-unit');
+  if (d >= 1000) {
+    numEl.textContent = (d / 1000).toFixed(2);
+    unitEl.textContent = 'km';
+  } else {
+    numEl.textContent = Math.round(d);
+    unitEl.textContent = 'metros';
+  }
+}
+
+// ─── NAVEGAR ──────────────────────────────────────────────
+function navegar() {
+  if (!aparcamiento) return;
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${aparcamiento.lat},${aparcamiento.lng}&travelmode=walking`;
+  window.open(url, '_blank');
+}
+
+// ─── BORRAR ───────────────────────────────────────────────
+function borrar() {
+  if (!confirm('¿Borrar la posición guardada?')) return;
+  aparcamiento = null;
+  localStorage.removeItem('aparcamiento');
+
+  if (markerCoche) { map.removeLayer(markerCoche); markerCoche = null; }
+  document.getElementById('map-empty').classList.remove('hidden');
+  document.getElementById('dist-badge').classList.remove('visible');
+
+  const pill = document.getElementById('status-pill');
+  pill.className = '';
+  pill.textContent = 'Sin guardar';
+
+  document.getElementById('info-saved').classList.remove('visible');
+  document.getElementById('btns-secundarios').style.display = 'none';
+  document.getElementById('btn-aparcar').textContent = '📍 Aparqué aquí';
+  document.getElementById('btn-aparcar').disabled = false;
+
+  document.getElementById('nota').value = '';
+  document.getElementById('foto-preview').src = '';
+  document.getElementById('foto-preview').classList.remove('visible');
+
+  toast('🗑 Posición borrada');
+}
+
+// ─── FOTO ─────────────────────────────────────────────────
+function manejarFoto(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('foto-preview');
+    img.src = e.target.result;
+    img.classList.add('visible');
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─── STORAGE ──────────────────────────────────────────────
+function guardarEnStorage() {
+  localStorage.setItem('aparcamiento', JSON.stringify(aparcamiento));
+}
+
+function cargarDesdeStorage() {
+  const raw = localStorage.getItem('aparcamiento');
+  if (!raw) return;
+  try {
+    aparcamiento = JSON.parse(raw);
+    if (aparcamiento.nota) document.getElementById('nota').value = aparcamiento.nota;
+    if (aparcamiento.foto) {
+      const img = document.getElementById('foto-preview');
+      img.src = aparcamiento.foto;
+      img.classList.add('visible');
+    }
+    mostrarAparcamiento();
+  } catch(e) {
+    localStorage.removeItem('aparcamiento');
+  }
+}
+
+// ─── EXPANSORES ───────────────────────────────────────────
+function toggleFoto() {
+  const wrap = document.getElementById('foto-wrap');
+  const btn  = document.getElementById('toggle-foto');
+  const open = wrap.classList.toggle('visible');
+  btn.classList.toggle('open', open);
+}
+
+function toggleNota() {
+  const wrap = document.getElementById('nota-wrap');
+  const btn  = document.getElementById('toggle-nota');
+  const open = wrap.classList.toggle('visible');
+  btn.classList.toggle('open', open);
+}
+
+// ─── TOAST ────────────────────────────────────────────────
+let toastTimeout;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ─── BIND EVENTS ──────────────────────────────────────────
+function bindEvents() {
+  document.getElementById('btn-aparcar').addEventListener('click', guardarAparcamiento);
+  document.getElementById('btn-navegar').addEventListener('click', navegar);
+  document.getElementById('btn-borrar').addEventListener('click', borrar);
+  document.getElementById('toggle-foto').addEventListener('click', toggleFota);
+  document.getElementById('toggle-nota').addEventListener('click', toggleNota);
+  document.getElementById('foto-input').addEventListener('change', e => manejarFoto(e.target.files[0]));
+  document.getElementById('foto-camara').addEventListener('change', e => manejarFoto(e.target.files[0]));
+}
+
+// typo fix
+function toggleFota() { toggleFoto(); }
+
+// ─── SW REGISTRATION ──────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(() => console.log('SW registrado'))
+      .catch(e => console.warn('SW error:', e));
+  });
+}
+
+// ─── ANIMACIÓN CSS del coche ─────────────────────────────
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes bounce {
+    0%,100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+`;
+document.head.appendChild(style);
+
+init();
+</script>
+</body>
+</html>
